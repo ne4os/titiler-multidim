@@ -1,0 +1,25 @@
+services:
+
+  titiler-multidim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: titiler-multidim:local
+    container_name: titiler-multidim
+    ports:
+      - "8000:8000"
+    environment:
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+      AWS_DEFAULT_REGION: "${AWS_DEFAULT_REGION:-us-east-1}"
+      AWS_ENDPOINT_URL: "${AWS_ENDPOINT_URL}"
+      TITILER_MULTIDIM_CORS_ORIGINS: "${TITILER_MULTIDIM_CORS_ORIGINS:-*}"
+    volumes:
+      - ./src:/app/src
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
