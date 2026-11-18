@@ -22,7 +22,39 @@ COPY pyproject.toml uv.lock* README.md ./
 COPY src ./src
 
 RUN uv venv /opt/venv \
-    && VIRTUAL_ENV=/opt/venv uv pip install ".[server]" gunicorn uvicorn-worker
+    && VIRTUAL_ENV=/opt/venv uv pip install ".[server]" \
+        "titiler-core==2.2.1" "titiler-xarray==2.2.1" \
+        gunicorn uvicorn-worker
+
+# titiler.xarray >= 0.25 only opens Zarr. This patch, loaded at interpreter start via a .pth
+# file, routes .nc/.nc4 to the fsspec + h5netcdf reader and keeps the obstore reader for Zarr.
+COPY <<'EOF' /tmp/titiler_nc_patch.py
+import attr
+import titiler.xarray.io as io
+
+_open_zarr = io.open_zarr
+
+
+def open_any(src_path, **kwargs):
+    if src_path.lower().split("?")[0].endswith((".nc", ".nc4")):
+        kwargs.pop("infer_region", None)
+        return io.fs_open_dataset(src_path, **kwargs)
+    return _open_zarr(src_path, **kwargs)
+
+
+@attr.s
+class AnyReader(io.Reader):
+    opener = attr.ib(default=open_any)
+
+
+# Must run before titiler.xarray.factory/extensions/main are imported (they bind these at import time).
+io.open_zarr = open_any
+io.Reader = AnyReader
+EOF
+
+RUN SP=$(/opt/venv/bin/python -c "import site; print(site.getsitepackages()[0])") \
+    && cp /tmp/titiler_nc_patch.py "$SP/" \
+    && echo "import titiler_nc_patch" > "$SP/titiler_nc_patch.pth"
 
 # ---------- Runtime stage ----------
 FROM ghcr.io/osgeo/gdal:${GDAL_TAG} AS runtime
